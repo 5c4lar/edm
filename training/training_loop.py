@@ -15,6 +15,7 @@ import pickle
 import psutil
 import numpy as np
 import torch
+import wandb
 import dnnlib
 from torch_utils import distributed as dist
 from torch_utils import training_stats
@@ -47,6 +48,7 @@ def training_loop(
     resume_kimg=0,  # Start from the given training progress.
     cudnn_benchmark=True,  # Enable torch.backends.cudnn.benchmark?
     device=torch.device("cuda"),
+    log_wandb=True,  # Log to wandb
 ):
     # Initialize.
     start_time = time.time()
@@ -123,7 +125,7 @@ def training_loop(
             sigma = torch.ones([batch_gpu], device=device)
             labels = torch.zeros([batch_gpu, net.label_dim], device=device)
             misc.print_module_summary(net, [images, sigma, labels], max_nesting=2)
-            
+
     # Resume training from previous snapshot.
     if resume_pkl is not None:
         dist.print0(f'Loading network weights from "{resume_pkl}"...')
@@ -149,8 +151,10 @@ def training_loop(
         optimizer.load_state_dict(data["optimizer_state"])
         del data  # conserve memory
 
+    total_params = sum(p.numel() for p in net.parameters())
     # Train.
     dist.print0(f"Training for {total_kimg} kimg...")
+    dist.print0(f"Training Parameters: {total_params} parameters")
     dist.print0()
     cur_nimg = resume_kimg * 1000
     cur_tick = 0
@@ -290,6 +294,17 @@ def training_loop(
                 + "\n"
             )
             stats_jsonl.flush()
+            if log_wandb:
+                loss_mean = training_stats.default_collector.as_dict()["Loss/loss"][
+                    "mean"
+                ]
+                lr = optimizer_kwargs["lr"] * min(
+                    cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1
+                )
+                wandb.log(
+                    {"train_loss": loss_mean, "lr": lr, "cur_nimg": cur_nimg},
+                    step=cur_nimg // batch_size,
+                )
         dist.update_progress(cur_nimg // 1000, total_kimg)
 
         # Update state.

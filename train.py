@@ -16,7 +16,7 @@ import torch
 import dnnlib
 from torch_utils import distributed as dist
 from training import training_loop
-
+import wandb
 import warnings
 
 warnings.filterwarnings(
@@ -236,6 +236,13 @@ def parse_int_list(s):
     "--resume", help="Resume from previous training state", metavar="PT", type=str
 )
 @click.option("-n", "--dry-run", help="Print training options and exit", is_flag=True)
+@click.option(
+    "--log_wandb",
+    help="Log to Weights & Biases",
+    type=bool,
+    default=True,
+    show_default=True,
+)
 def main(**kwargs):
     """Train diffusion-based generative model using the techniques described in the
     paper "Elucidating the Design Space of Diffusion-Based Generative Models".
@@ -250,6 +257,8 @@ def main(**kwargs):
     opts = dnnlib.EasyDict(kwargs)
     torch.multiprocessing.set_start_method("spawn")
     dist.init()
+    if opts.log_wandb and dist.get_rank() == 0:
+        run = wandb.init()
 
     # Initialize config dict.
     c = dnnlib.EasyDict()
