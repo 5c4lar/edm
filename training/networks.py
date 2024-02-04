@@ -357,6 +357,7 @@ class UNetBlock(torch.nn.Module):
 # Reimplementation of the ADM architecture from the paper
 # "Analyzing and Improving the Training Dynamics of Diffusion Models".
 
+
 def pixel_norm(x: torch.Tensor, eps: float = 1e-4, dim=1) -> torch.Tensor:
     return x / (torch.sqrt(torch.mean(x**2, dim=dim, keepdim=True) + eps))
 
@@ -392,6 +393,7 @@ def normalize(x, eps=1e-4):
     alpha = np.sqrt(n.numel() / x.numel())
     return x / torch.add(eps, n, alpha=alpha)
 
+
 @persistence.persistent_class
 class KarrasConv2d(torch.nn.Conv2d):
     def __init__(self, C_in, C_out, k):
@@ -405,6 +407,7 @@ class KarrasConv2d(torch.nn.Conv2d):
         w = normalize(self.weight) / np.sqrt(fan_in)
         x = torch.nn.functional.conv2d(x, w.to(x.dtype), padding="same")
         return x
+
 
 @persistence.persistent_class
 class KarrasLinear(torch.nn.Linear):
@@ -420,6 +423,7 @@ class KarrasLinear(torch.nn.Linear):
         x = torch.nn.functional.linear(x, w.to(x.dtype))
         return x
 
+
 @persistence.persistent_class
 class KarrasGroupNorm(torch.nn.Module):
     def __init__(self, num_channels, num_groups=32, min_channels_per_group=4, eps=1e-5):
@@ -434,6 +438,7 @@ class KarrasGroupNorm(torch.nn.Module):
             eps=self.eps,
         )
         return x
+
 
 @persistence.persistent_class
 class KarrasFourierEmbedding(torch.nn.Module):
@@ -456,9 +461,12 @@ class KarrasClassEmbedding(torch.nn.Module):
         self.linear = KarrasLinear(num_embeddings, embedding_dim)
 
     def forward(self, class_labels: torch.Tensor):
-        class_emb = torch.nn.functional.one_hot(class_labels.flatten(), self.num_embeddings)
+        class_emb = torch.nn.functional.one_hot(
+            class_labels.flatten(), self.num_embeddings
+        )
         return self.linear(class_emb * np.sqrt(self.num_embeddings, dtype=np.float32))
-    
+
+
 @persistence.persistent_class
 class KarrasEmbedding(torch.nn.Module):
     def __init__(
@@ -491,7 +499,8 @@ class KarrasEmbedding(torch.nn.Module):
 
         out = mp_silu(embedding)
         return out
-    
+
+
 @persistence.persistent_class
 class KarrasCosineAttention(torch.nn.Module):
     def __init__(self, embed_dimension: int, head_dim: int = 64):
@@ -517,13 +526,16 @@ class KarrasCosineAttention(torch.nn.Module):
         v = v.view(b, -1, self.num_heads, self.head_dim).transpose(1, 2)
         q, k, v = pixel_norm(q), pixel_norm(k), pixel_norm(v)
 
-        res = torch.nn.functional.scaled_dot_product_attention(q, k, v)  # (b, num_heads, h*w, head_dim)
+        res = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v
+        )  # (b, num_heads, h*w, head_dim)
 
         res = res.transpose(-1, -2).reshape(b, -1, h, w)
         res = self.c_proj(res)
 
         out = mp_add(input, res)
         return out
+
 
 @persistence.persistent_class
 class Upsample(torch.nn.Module):
@@ -533,7 +545,8 @@ class Upsample(torch.nn.Module):
     def forward(self, x):
         return torch.nn.functional.interpolate(x, scale_factor=2, mode="nearest")
 
-@persistence.persistent_class  
+
+@persistence.persistent_class
 class KarrasEncoderBlock(torch.nn.Module):
     def __init__(
         self,
@@ -553,7 +566,9 @@ class KarrasEncoderBlock(torch.nn.Module):
         self.dropout_rate = dropout_rate
         self.add_factor = add_factor
 
-        self.resample = torch.nn.AvgPool2d(kernel_size=2, stride=2) if down else torch.nn.Identity()
+        self.resample = (
+            torch.nn.AvgPool2d(kernel_size=2, stride=2) if down else torch.nn.Identity()
+        )
 
         self.conv_1x1 = (
             KarrasConv2d(in_channels, out_channels, 1)
@@ -565,7 +580,9 @@ class KarrasEncoderBlock(torch.nn.Module):
         self.conv_3x3_2 = KarrasConv2d(out_channels, out_channels, 3)
         self.dropout = torch.nn.Dropout(self.dropout_rate)
         self.attention = (
-            KarrasCosineAttention(out_channels, head_dim) if attention else torch.nn.Identity()
+            KarrasCosineAttention(out_channels, head_dim)
+            if attention
+            else torch.nn.Identity()
         )
 
         # embedding layer
@@ -581,7 +598,9 @@ class KarrasEncoderBlock(torch.nn.Module):
         res = x
         res = mp_silu(res)
         res = self.conv_3x3_1(res)
-        res = res * (self.embed(embedding) * self.gain.to(x.dtype) + 1).unsqueeze(-1).unsqueeze(-1)
+        res = res * (self.embed(embedding) * self.gain.to(x.dtype) + 1).unsqueeze(
+            -1
+        ).unsqueeze(-1)
         res = mp_silu(res)
         res = self.dropout(res)
         res = self.conv_3x3_2(res)
@@ -589,6 +608,7 @@ class KarrasEncoderBlock(torch.nn.Module):
         out = mp_add(x, res, self.add_factor)
         out = self.attention(out)
         return out
+
 
 @persistence.persistent_class
 class KarrasDecoderBlock(torch.nn.Module):
@@ -626,7 +646,9 @@ class KarrasDecoderBlock(torch.nn.Module):
         self.conv_3x3_2 = KarrasConv2d(out_channels, out_channels, 3)
         self.dropout = torch.nn.Dropout(dropout_rate)
         self.attention = (
-            KarrasCosineAttention(out_channels, head_dim) if attention else torch.nn.Identity()
+            KarrasCosineAttention(out_channels, head_dim)
+            if attention
+            else torch.nn.Identity()
         )
 
         # embedding layer
@@ -634,7 +656,10 @@ class KarrasDecoderBlock(torch.nn.Module):
         self.gain = torch.nn.Parameter(torch.ones(1))
 
     def forward(
-        self, input: torch.Tensor, embedding: torch.torch.Tensor, skip: torch.Tensor | None = None
+        self,
+        input: torch.Tensor,
+        embedding: torch.torch.Tensor,
+        skip: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if skip is not None:
             input = mp_cat(input, skip, self.cat_factor)
@@ -645,7 +670,9 @@ class KarrasDecoderBlock(torch.nn.Module):
         res = mp_silu(res)
         res = self.conv_3x3_1(res)
 
-        res = res * (self.embed(embedding) * self.gain.to(x.dtype) + 1).unsqueeze(-1).unsqueeze(-1)
+        res = res * (self.embed(embedding) * self.gain.to(x.dtype) + 1).unsqueeze(
+            -1
+        ).unsqueeze(-1)
         res = mp_silu(res)
         res = self.dropout(res)
         res = self.conv_3x3_2(res)
@@ -653,7 +680,7 @@ class KarrasDecoderBlock(torch.nn.Module):
         out = mp_add(x, res, self.add_factor)
         out = self.attention(out)
         return out
-    
+
 
 @persistence.persistent_class
 class KarrasUNet(torch.nn.Module):
@@ -679,13 +706,17 @@ class KarrasUNet(torch.nn.Module):
     ):
         super().__init__()
         emb_channels = model_channels * channel_mult_emb
-        self.embedding = KarrasEmbedding(fourier_dim=model_channels, embedding_dim=emb_channels, num_classes=label_dim)
+        self.embedding = KarrasEmbedding(
+            fourier_dim=model_channels,
+            embedding_dim=emb_channels,
+            num_classes=label_dim,
+        )
         block_kwargs = dict(
             embedding_dim=emb_channels,
             head_dim=64,
             dropout_rate=dropout,
         )
-        
+
         # Encoder.
         self.enc = torch.nn.ModuleDict()
         cout = in_channels + 1
@@ -696,18 +727,17 @@ class KarrasUNet(torch.nn.Module):
                 cout = model_channels * mult
                 self.enc[f"{res}x{res}_conv"] = KarrasConv2d(cin, cout, 3)
             else:
-                self.enc[f"{res}x{res}_down"] = KarrasEncoderBlock(cout, cout, down=True, **block_kwargs)
+                self.enc[f"{res}x{res}_down"] = KarrasEncoderBlock(
+                    cout, cout, down=True, **block_kwargs
+                )
             for idx in range(num_blocks):
                 cin = cout
                 cout = model_channels * mult
                 self.enc[f"{res}x{res}_block_{idx}"] = KarrasEncoderBlock(
-                    cin, 
-                    cout, 
-                    attention=(res in attn_resolutions),
-                    **block_kwargs
-                    )
+                    cin, cout, attention=(res in attn_resolutions), **block_kwargs
+                )
         skips = [block.out_channels for block in self.enc.values()]
-        
+
         # Decoder.
         self.dec = torch.nn.ModuleDict()
         for level, mult in reversed(list(enumerate(channel_mult))):
@@ -723,17 +753,17 @@ class KarrasUNet(torch.nn.Module):
                 self.dec[f"{res}x{res}_up"] = KarrasDecoderBlock(
                     cout, cout, up=True, **block_kwargs
                 )
-            for idx in range(num_blocks+1):
+            for idx in range(num_blocks + 1):
                 cin = cout
                 cout = model_channels * mult
                 self.dec[f"{res}x{res}_block_{idx}"] = KarrasDecoderBlock(
-                    cin, 
-                    cout, 
+                    cin,
+                    cout,
                     skip_channels=skips.pop(),
                     attention=(res in attn_resolutions),
-                    **block_kwargs
+                    **block_kwargs,
                 )
-                
+
         self.conv_out = KarrasConv2d(cout, out_channels, 3)
         self.gain_out = torch.nn.Parameter(torch.zeros(1))
 
@@ -756,7 +786,7 @@ class KarrasUNet(torch.nn.Module):
                 x = block(x, emb)
         x = self.conv_out(x) * self.gain_out
         return x.to(dtype)
-        
+
 
 # ----------------------------------------------------------------------------
 # Timestep embedding used in the DDPM++ and ADM architectures.
