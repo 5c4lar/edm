@@ -127,7 +127,7 @@ def training_loop(
             )
             sigma = torch.ones([batch_gpu], device=device)
             labels = torch.zeros([batch_gpu, net.label_dim], device=device)
-            misc.print_module_summary(net, [images, sigma, labels], max_nesting=2)
+            misc.print_module_summary(net, [images, sigma, labels], max_nesting=3)
 
     # Resume training from previous snapshot.
     if resume_pkl is not None:

@@ -443,7 +443,8 @@ def main(**kwargs):
         prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
         cur_run_id = max(prev_run_ids, default=-1) + 1
         c.run_dir = os.path.join(opts.outdir, f"{cur_run_id:05d}-{desc}")
-        assert not os.path.exists(c.run_dir)
+        if dist.get_rank() == 0:
+            assert not os.path.exists(c.run_dir)
 
     # Print options.
     dist.print0()
