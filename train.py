@@ -65,8 +65,8 @@ def parse_int_list(s):
 @click.option(
     "--arch",
     help="Network architecture",
-    metavar="ddpmpp|ncsnpp|adm",
-    type=click.Choice(["ddpmpp", "ncsnpp", "adm"]),
+    metavar="ddpmpp|ncsnpp|adm|karras",
+    type=click.Choice(["ddpmpp", "ncsnpp", "adm", "karras"]),
     default="ddpmpp",
     show_default=True,
 )
@@ -146,6 +146,22 @@ def parse_int_list(s):
 @click.option(
     "--xflip",
     help="Enable dataset x-flips",
+    metavar="BOOL",
+    type=bool,
+    default=False,
+    show_default=True,
+)
+@click.option(
+    "--attn-resolutions",
+    help="Resolutions for attention",
+    metavar="LIST",
+    type=parse_int_list,
+    default=[32, 16, 8],
+    show_default=True,
+)
+@click.option(
+    "--uncertainty",
+    help="Use uncertainty loss weighting",
     metavar="BOOL",
     type=bool,
     default=False,
@@ -240,7 +256,7 @@ def parse_int_list(s):
     "--log_wandb",
     help="Log to Weights & Biases",
     type=bool,
-    default=True,
+    default=False,
     show_default=True,
 )
 def main(**kwargs):
@@ -274,6 +290,8 @@ def main(**kwargs):
     )
     c.network_kwargs = dnnlib.EasyDict()
     c.loss_kwargs = dnnlib.EasyDict()
+    c.loss_kwargs.update(uncertainty=opts.uncertainty)
+    c.log_wandb = opts.log_wandb
     c.optimizer_kwargs = dnnlib.EasyDict(
         class_name="torch.optim.Adam", lr=opts.lr, betas=[0.9, 0.999], eps=1e-8
     )
@@ -321,10 +339,19 @@ def main(**kwargs):
             model_channels=128,
             channel_mult=[2, 2, 2],
         )
-    else:
-        assert opts.arch == "adm"
+    elif opts.arch == "adm":
         c.network_kwargs.update(
-            model_type="DhariwalUNet", model_channels=192, channel_mult=[1, 2, 3, 4]
+            model_type="DhariwalUNet",
+            model_channels=192,
+            channel_mult=[1, 2, 3, 4],
+            attn_resolutions=opts.attn_resolutions,
+        )
+    elif opts.arch == "karras":
+        c.network_kwargs.update(
+            model_type="KarrasUNet",
+            model_channels=192,
+            channel_mult=[1, 2, 3, 4],
+            attn_resolutions=opts.attn_resolutions,
         )
 
     # Preconditioning & loss function.
@@ -355,6 +382,7 @@ def main(**kwargs):
     if "bf16" == opts.dtype and not torch.cuda.is_bf16_supported():
         opts.dtype = "fp16"
     c.network_kwargs.update(dropout=opts.dropout, dtype=opts.dtype)
+    c.network_kwargs.update(uncertainty=opts.uncertainty)
 
     # Training options.
     c.total_kimg = max(int(opts.duration * 1000), 1)

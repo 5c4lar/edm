@@ -48,7 +48,7 @@ def training_loop(
     resume_kimg=0,  # Start from the given training progress.
     cudnn_benchmark=True,  # Enable torch.backends.cudnn.benchmark?
     device=torch.device("cuda"),
-    log_wandb=True,  # Log to wandb
+    log_wandb=False,  # Log to wandb
 ):
     # Initialize.
     start_time = time.time()
@@ -178,9 +178,23 @@ def training_loop(
                 images, labels = next(dataset_iterator)
                 images = images.to(device).to(torch.float32) / 127.5 - 1
                 labels = labels.to(device)
-                loss = loss_fn(
-                    net=ddp, images=images, labels=labels, augment_pipe=augment_pipe
-                )
+                if loss_kwargs["uncertainty"]:
+                    scaled_loss, u_sigma = loss_fn(
+                        net=ddp,
+                        images=images,
+                        labels=labels,
+                        augment_pipe=augment_pipe,
+                    )
+                    loss = (
+                        scaled_loss / u_sigma.exp()[:, :, None, None]
+                        + u_sigma[:, :, None, None]
+                    )
+                    training_stats.report("Loss/u_sigma", u_sigma)
+                    training_stats.report("Loss/scaled_loss", scaled_loss)
+                else:
+                    loss = loss_fn(
+                        net=ddp, images=images, labels=labels, augment_pipe=augment_pipe
+                    )
                 training_stats.report("Loss/loss", loss)
                 loss.sum().mul(loss_scaling / batch_gpu_total).backward()
 
@@ -311,10 +325,28 @@ def training_loop(
                 lr = optimizer_kwargs["lr"] * min(
                     cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1
                 )
-                wandb.log(
-                    {"train_loss": loss_mean, "lr": lr, "cur_nimg": cur_nimg},
-                    step=cur_nimg // batch_size,
-                )
+                if loss_kwargs["uncertainty"]:
+                    u_sigma = training_stats.default_collector.as_dict()[
+                        "Loss/u_sigma"
+                    ]["mean"]
+                    scaled_loss = training_stats.default_collector.as_dict()[
+                        "Loss/scaled_loss"
+                    ]["mean"]
+                    wandb.log(
+                        {
+                            "train_loss": loss_mean,
+                            "scaled_loss": scaled_loss,
+                            "lr": lr,
+                            "cur_nimg": cur_nimg,
+                            "u_sigma": u_sigma,
+                        },
+                        step=cur_nimg // batch_size,
+                    )
+                else:
+                    wandb.log(
+                        {"train_loss": loss_mean, "lr": lr, "cur_nimg": cur_nimg},
+                        step=cur_nimg // batch_size,
+                    )
         dist.update_progress(cur_nimg // 1000, total_kimg)
 
         # Update state.

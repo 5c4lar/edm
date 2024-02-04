@@ -190,6 +190,26 @@ class GroupNorm(torch.nn.Module):
 
 
 # ----------------------------------------------------------------------------
+# Group normalization.
+
+
+@persistence.persistent_class
+class KarrasGroupNorm(torch.nn.Module):
+    def __init__(self, num_channels, num_groups=32, min_channels_per_group=4, eps=1e-5):
+        super().__init__()
+        self.num_groups = min(num_groups, num_channels // min_channels_per_group)
+        self.eps = eps
+
+    def forward(self, x):
+        x = torch.nn.functional.group_norm(
+            x,
+            num_groups=self.num_groups,
+            eps=self.eps,
+        )
+        return x
+
+
+# ----------------------------------------------------------------------------
 # Attention weight computation, i.e., softmax(Q^T * K).
 # Performs all computation using FP32, but uses the original datatype for
 # inputs/outputs/gradients to conserve memory.
@@ -346,6 +366,137 @@ class UNetBlock(torch.nn.Module):
                 )
                 .unbind(2)
             )
+            w = AttentionOp.apply(q, k)
+            a = torch.einsum("nqk,nck->ncq", w, v)
+            x = self.proj(a.reshape(*x.shape)).add_(x)
+            x = x * self.skip_scale
+        return x
+
+
+# ----------------------------------------------------------------------------
+def pixel_norm(x: torch.FloatTensor, eps=1e-4, dim=-1):
+    return x / torch.sqrt(torch.mean(x**2, dim=dim, keepdim=True) + eps)
+
+
+# ----------------------------------------------------------------------------
+# Unified U-Net block with optional up/downsampling and self-attention.
+# Implements the variant used in the Karras paper.
+
+
+@persistence.persistent_class
+class KarrasUNetBlock(torch.nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        emb_channels,
+        up=False,
+        down=False,
+        attention=False,
+        num_heads=None,
+        channels_per_head=64,
+        dropout=0,
+        skip_scale=1,
+        eps=1e-5,
+        resample_filter=[1, 1],
+        resample_proj=False,
+        adaptive_scale=True,
+        init=dict(),
+        init_attn=None,
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.emb_channels = emb_channels
+        self.num_heads = (
+            0
+            if not attention
+            else (
+                num_heads
+                if num_heads is not None
+                else out_channels // channels_per_head
+            )
+        )
+        self.dropout = dropout
+        self.skip_scale = skip_scale
+        self.adaptive_scale = adaptive_scale
+
+        self.norm0 = KarrasGroupNorm(num_channels=in_channels, eps=eps)
+        self.conv0 = Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            bias=False,
+            kernel=3,
+            up=up,
+            down=down,
+            resample_filter=resample_filter,
+            **init,
+        )
+        self.linear = Linear(
+            in_features=emb_channels,
+            out_features=out_channels,
+            bias=False,
+            **init,
+        )
+        self.norm1 = KarrasGroupNorm(num_channels=out_channels, eps=eps)
+        self.conv1 = Conv2d(
+            in_channels=out_channels,
+            out_channels=out_channels,
+            bias=False,
+            kernel=3,
+            **init,
+        )
+
+        self.skip = None
+        if out_channels != in_channels or up or down:
+            kernel = 1 if resample_proj or out_channels != in_channels else 0
+            self.skip = Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                bias=False,
+                kernel=kernel,
+                up=up,
+                down=down,
+                resample_filter=resample_filter,
+                **init,
+            )
+
+        if self.num_heads:
+            self.norm2 = pixel_norm
+            self.qkv = Conv2d(
+                in_channels=out_channels,
+                out_channels=out_channels * 3,
+                bias=False,
+                kernel=1,
+                **(init_attn if init_attn is not None else init),
+            )
+            self.proj = Conv2d(
+                in_channels=out_channels,
+                out_channels=out_channels,
+                bias=False,
+                kernel=1,
+                **init,
+            )
+
+    def forward(self, x, emb):
+        orig = x
+        x = self.conv0(silu(self.norm0(x)))
+
+        scale = self.linear(emb).unsqueeze(2).unsqueeze(3).to(x.dtype)
+        x = silu(self.norm1(x) * (scale + 1))
+
+        x = self.conv1(
+            torch.nn.functional.dropout(x, p=self.dropout, training=self.training)
+        )
+        x = x.add_(self.skip(orig) if self.skip is not None else orig)
+        x = x * self.skip_scale
+
+        if self.num_heads:
+            q, k, v = self.norm2(
+                self.qkv(x).reshape(
+                    x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, 3, -1
+                )
+            ).unbind(2)
             w = AttentionOp.apply(q, k)
             a = torch.einsum("nqk,nck->ncq", w, v)
             x = self.proj(a.reshape(*x.shape)).add_(x)
@@ -617,6 +768,26 @@ class SongUNet(torch.nn.Module):
 
 
 # ----------------------------------------------------------------------------
+# Uncertainty-based loss weighting according to the paper Analyzing and
+# Improving the Training Dynamics of Diffusion Models
+
+
+class UncertaintyMLP(torch.nn.Module):
+    def __init__(
+        self,
+        num_channels,
+    ):
+        super().__init__()
+        self.map_noise = FourierEmbedding(num_channels=num_channels)
+        self.mlp = Linear(num_channels, 1, init_mode="kaiming_uniform", bias=False)
+
+    def forward(self, noise_labels):
+        emb = self.map_noise(noise_labels)
+        u_sigma = self.mlp(emb)
+        return u_sigma
+
+
+# ----------------------------------------------------------------------------
 # Reimplementation of the ADM architecture from the paper
 # "Diffusion Models Beat GANS on Image Synthesis". Equivalent to the
 # original implementation by Dhariwal and Nichol, available at
@@ -767,6 +938,178 @@ class DhariwalUNet(torch.nn.Module):
         skips = []
         for block in self.enc.values():
             x = block(x, emb) if isinstance(block, UNetBlock) else block(x)
+            skips.append(x)
+
+        # Decoder.
+        for block in self.dec.values():
+            if x.shape[1] != block.in_channels:
+                x = torch.cat([x, skips.pop()], dim=1)
+            x = block(x, emb)
+        x = self.out_conv(silu(self.out_norm(x)))
+        return x
+
+
+# ----------------------------------------------------------------------------
+# Reimplementation of the ADM architecture from the paper
+# "Analyzing and Improving the Training Dynamics of Diffusion Models".
+
+
+@persistence.persistent_class
+class KarrasUNet(torch.nn.Module):
+    def __init__(
+        self,
+        img_resolution,  # Image resolution at input/output.
+        in_channels,  # Number of color channels at input.
+        out_channels,  # Number of color channels at output.
+        label_dim=0,  # Number of class labels, 0 = unconditional.
+        augment_dim=0,  # Augmentation label dimensionality, 0 = no augmentation.
+        model_channels=192,  # Base multiplier for the number of channels.
+        channel_mult=[
+            1,
+            2,
+            3,
+            4,
+        ],  # Per-resolution multipliers for the number of channels.
+        channel_mult_emb=4,  # Multiplier for the dimensionality of the embedding vector.
+        num_blocks=3,  # Number of residual blocks per resolution.
+        attn_resolutions=[32, 16, 8],  # List of resolutions with self-attention.
+        dropout=0.10,  # List of resolutions with self-attention.
+        label_dropout=0,  # Dropout probability of class labels for classifier-free guidance.
+    ):
+        super().__init__()
+        self.label_dropout = label_dropout
+        emb_channels = model_channels * channel_mult_emb
+        init = dict(
+            init_mode="kaiming_uniform",
+            init_weight=np.sqrt(1 / 3),
+        )
+        block_kwargs = dict(
+            emb_channels=emb_channels,
+            channels_per_head=64,
+            dropout=dropout,
+            init=init,
+        )
+
+        # Mapping.
+        self.map_noise = FourierEmbedding(num_channels=model_channels)
+        self.map_augment = (
+            Linear(
+                in_features=augment_dim,
+                out_features=model_channels,
+                bias=False,
+                **init,
+            )
+            if augment_dim
+            else None
+        )
+        self.map_layer0 = Linear(
+            in_features=model_channels, out_features=emb_channels, bias=False, **init
+        )
+        self.map_layer1 = Linear(
+            in_features=emb_channels, out_features=emb_channels, bias=False, **init
+        )
+        self.map_label = (
+            Linear(
+                in_features=label_dim,
+                out_features=emb_channels,
+                bias=False,
+                init_mode="kaiming_normal",
+                init_weight=np.sqrt(label_dim),
+            )
+            if label_dim
+            else None
+        )
+
+        # Encoder.
+        self.enc = torch.nn.ModuleDict()
+        cout = in_channels
+        for level, mult in enumerate(channel_mult):
+            res = img_resolution >> level
+            if level == 0:
+                cin = cout
+                cout = model_channels * mult
+                self.enc[f"{res}x{res}_conv"] = Conv2d(
+                    in_channels=cin + 1, out_channels=cout, kernel=3, bias=False, **init
+                )
+            else:
+                self.enc[f"{res}x{res}_down"] = KarrasUNetBlock(
+                    in_channels=cout, out_channels=cout, down=True, **block_kwargs
+                )
+            for idx in range(num_blocks):
+                cin = cout
+                cout = model_channels * mult
+                self.enc[f"{res}x{res}_block{idx}"] = KarrasUNetBlock(
+                    in_channels=cin,
+                    out_channels=cout,
+                    attention=(res in attn_resolutions),
+                    **block_kwargs,
+                )
+        skips = [block.out_channels for block in self.enc.values()]
+
+        # Decoder.
+        self.dec = torch.nn.ModuleDict()
+        for level, mult in reversed(list(enumerate(channel_mult))):
+            res = img_resolution >> level
+            if level == len(channel_mult) - 1:
+                self.dec[f"{res}x{res}_in0"] = KarrasUNetBlock(
+                    in_channels=cout, out_channels=cout, attention=True, **block_kwargs
+                )
+                self.dec[f"{res}x{res}_in1"] = KarrasUNetBlock(
+                    in_channels=cout, out_channels=cout, **block_kwargs
+                )
+            else:
+                self.dec[f"{res}x{res}_up"] = KarrasUNetBlock(
+                    in_channels=cout, out_channels=cout, up=True, **block_kwargs
+                )
+            for idx in range(num_blocks + 1):
+                cin = cout + skips.pop()
+                cout = model_channels * mult
+                self.dec[f"{res}x{res}_block{idx}"] = KarrasUNetBlock(
+                    in_channels=cin,
+                    out_channels=cout,
+                    attention=(res in attn_resolutions),
+                    **block_kwargs,
+                )
+        self.out_norm = KarrasGroupNorm(num_channels=cout)
+        self.out_conv = Conv2d(
+            in_channels=cout,
+            out_channels=out_channels,
+            kernel=3,
+            bias=False,
+            **init,
+        )
+
+    def forward(self, x, noise_labels, class_labels, augment_labels=None):
+        # Mapping.
+        emb = self.map_noise(noise_labels)
+        if self.map_augment is not None and augment_labels is not None:
+            emb = emb + self.map_augment(augment_labels)
+        emb = silu(self.map_layer0(emb))
+        emb = self.map_layer1(emb)
+        if self.map_label is not None:
+            tmp = class_labels
+            if self.training and self.label_dropout:
+                tmp = tmp * (
+                    torch.rand([x.shape[0], 1], device=x.device) >= self.label_dropout
+                ).to(tmp.dtype)
+            emb = emb + self.map_label(tmp)
+        emb = silu(emb)
+
+        # Encoder.
+        x = torch.cat(
+            [
+                x,
+                torch.ones(
+                    (x.shape[0], 1, x.shape[2], x.shape[3]),
+                    device=x.device,
+                    dtype=x.dtype,
+                ),
+            ],
+            dim=1,
+        )
+        skips = []
+        for block in self.enc.values():
+            x = block(x, emb) if isinstance(block, KarrasUNetBlock) else block(x)
             skips.append(x)
 
         # Decoder.
@@ -1061,6 +1404,7 @@ class EDMPrecond(torch.nn.Module):
         sigma_max=float("inf"),  # Maximum supported noise level.
         sigma_data=0.5,  # Expected standard deviation of the training data.
         model_type="DhariwalUNet",  # Class name of the underlying model.
+        uncertainty=False,  # Use uncertainty-based loss weighting?
         **model_kwargs,  # Keyword arguments for the underlying model.
     ):
         super().__init__()
@@ -1078,8 +1422,20 @@ class EDMPrecond(torch.nn.Module):
             label_dim=label_dim,
             **model_kwargs,
         )
+        if uncertainty:
+            self.uncertainty = UncertaintyMLP(
+                num_channels=model_kwargs["model_channels"]
+            )
 
-    def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
+    def forward(
+        self,
+        x,
+        sigma,
+        class_labels=None,
+        force_fp32=False,
+        return_uncertainty=False,
+        **model_kwargs,
+    ):
         x = x.to(torch.float32)
         sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
         class_labels = (
@@ -1114,7 +1470,11 @@ class EDMPrecond(torch.nn.Module):
         )
         assert F_x.dtype == dtype
         D_x = c_skip * x + c_out * F_x.to(torch.float32)
-        return D_x
+        if return_uncertainty:
+            u_sigma = self.uncertainty(c_noise.flatten())
+            return D_x, u_sigma
+        else:
+            return D_x
 
     def round_sigma(self, sigma):
         return torch.as_tensor(sigma)

@@ -73,10 +73,11 @@ class VELoss:
 
 @persistence.persistent_class
 class EDMLoss:
-    def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.5):
+    def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.5, uncertainty=False):
         self.P_mean = P_mean
         self.P_std = P_std
         self.sigma_data = sigma_data
+        self.uncertainty = uncertainty
 
     def __call__(self, net, images, labels=None, augment_pipe=None):
         rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
@@ -86,9 +87,20 @@ class EDMLoss:
             augment_pipe(images) if augment_pipe is not None else (images, None)
         )
         n = torch.randn_like(y) * sigma
-        D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
-        loss = weight * ((D_yn - y) ** 2)
-        return loss
+        if self.uncertainty:
+            D_yn, u_sigma = net(
+                y + n,
+                sigma,
+                labels,
+                augment_labels=augment_labels,
+                return_uncertainty=True,
+            )
+            loss = weight * ((D_yn - y) ** 2)
+            return loss, u_sigma
+        else:
+            D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
+            loss = weight * ((D_yn - y) ** 2)
+            return loss
 
 
 # ----------------------------------------------------------------------------
