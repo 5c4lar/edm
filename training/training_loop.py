@@ -112,7 +112,7 @@ def training_loop(
         else None
     )  # training.augment.AugmentPipe
     ddp = torch.nn.parallel.DistributedDataParallel(
-        net, device_ids=[device], broadcast_buffers=False
+        net, device_ids=[device], broadcast_buffers=True
     )
     emas = {
         sigma: copy.deepcopy(net).eval().requires_grad_(False) for sigma in ema_sigmas
