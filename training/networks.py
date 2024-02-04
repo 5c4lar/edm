@@ -833,9 +833,11 @@ class VPPrecond(torch.nn.Module):
         dtype = (
             torch.float16
             if (self.dtype == "fp16" and not force_fp32 and x.device.type == "cuda")
-            else torch.bfloat16
-            if (self.dtype == "bf16" and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            else (
+                torch.bfloat16
+                if (self.dtype == "bf16" and not force_fp32 and x.device.type == "cuda")
+                else torch.float32
+            )
         )
 
         c_skip = 1
@@ -917,9 +919,11 @@ class VEPrecond(torch.nn.Module):
         dtype = (
             torch.float16
             if (self.dtype == "fp16" and not force_fp32 and x.device.type == "cuda")
-            else torch.bfloat16
-            if (self.dtype == "bf16" and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            else (
+                torch.bfloat16
+                if (self.dtype == "bf16" and not force_fp32 and x.device.type == "cuda")
+                else torch.float32
+            )
         )
 
         c_skip = 1
@@ -1002,9 +1006,11 @@ class iDDPMPrecond(torch.nn.Module):
         dtype = (
             torch.float16
             if (self.dtype == "fp16" and not force_fp32 and x.device.type == "cuda")
-            else torch.bfloat16
-            if (self.dtype == "bf16" and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            else (
+                torch.bfloat16
+                if (self.dtype == "bf16" and not force_fp32 and x.device.type == "cuda")
+                else torch.float32
+            )
         )
 
         c_skip = 1
@@ -1088,9 +1094,11 @@ class EDMPrecond(torch.nn.Module):
         dtype = (
             torch.float16
             if (self.dtype == "fp16" and not force_fp32 and x.device.type == "cuda")
-            else torch.bfloat16
-            if (self.dtype == "bf16" and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            else (
+                torch.bfloat16
+                if (self.dtype == "bf16" and not force_fp32 and x.device.type == "cuda")
+                else torch.float32
+            )
         )
 
         c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
