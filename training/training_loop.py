@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import wandb
 import dnnlib
+from torch_utils import ema
 from torch_utils import distributed as dist
 from torch_utils import training_stats
 from torch_utils import misc
@@ -36,8 +37,7 @@ def training_loop(
     batch_size=512,  # Total batch size for one training iteration.
     batch_gpu=None,  # Limit batch size per GPU, None = no limit.
     total_kimg=200000,  # Training duration, measured in thousands of training images.
-    ema_halflife_kimg=500,  # Half-life of the exponential moving average (EMA) of model weights.
-    ema_rampup_ratio=0.05,  # EMA ramp-up coefficient, None = no rampup.
+    ema_sigmas=[0.05, 0.10],  # EMA sigmas
     lr_rampup_kimg=10000,  # Learning rate ramp-up duration.
     loss_scaling=1,  # Loss scaling factor for reducing FP16 under/overflows.
     kimg_per_tick=50,  # Interval of progress prints.
@@ -114,7 +114,10 @@ def training_loop(
     ddp = torch.nn.parallel.DistributedDataParallel(
         net, device_ids=[device], broadcast_buffers=False
     )
-    ema = copy.deepcopy(net).eval().requires_grad_(False)
+    emas = {
+        sigma: copy.deepcopy(net).eval().requires_grad_(False) for sigma in ema_sigmas
+    }
+    ema_gammas = [ema.sigma_rel_to_gamma(sigma) for sigma in ema_sigmas]
 
     if dist.get_rank() == 0:
         with torch.no_grad():
@@ -136,11 +139,14 @@ def training_loop(
         if dist.get_rank() == 0:
             torch.distributed.barrier()  # other ranks follow
         misc.copy_params_and_buffers(
-            src_module=data["ema"], dst_module=net, require_all=False
+            src_module=data["net"], dst_module=net, require_all=False
         )
-        misc.copy_params_and_buffers(
-            src_module=data["ema"], dst_module=ema, require_all=False
-        )
+        for ema_sigma in ema_sigmas:
+            misc.copy_params_and_buffers(
+                src_module=data[f"ema_{ema_sigma}"],
+                dst_module=emas[ema_sigma],
+                require_all=False,
+            )
         del data  # conserve memory
     if resume_state_dump:
         dist.print0(f'Loading training state from "{resume_state_dump}"...')
@@ -191,12 +197,10 @@ def training_loop(
         optimizer.step()
 
         # Update EMA.
-        ema_halflife_nimg = ema_halflife_kimg * 1000
-        if ema_rampup_ratio is not None:
-            ema_halflife_nimg = min(ema_halflife_nimg, cur_nimg * ema_rampup_ratio)
-        ema_beta = 0.5 ** (batch_size / max(ema_halflife_nimg, 1e-8))
-        for p_ema, p_net in zip(ema.parameters(), net.parameters()):
-            p_ema.copy_(p_net.detach().lerp(p_ema, ema_beta))
+        for ema_sigma, ema_gamma in zip(ema_sigmas, ema_gammas):
+            ema_beta = (1 - 1 / (cur_nimg / batch_size + 1)) ** (1 + ema_gamma)
+            for p_ema, p_net in zip(emas[ema_sigma].parameters(), net.parameters()):
+                p_ema.copy_(p_net.detach().lerp(p_ema, ema_beta))
 
         # Perform maintenance tasks once per tick.
         cur_nimg += batch_size
@@ -246,13 +250,19 @@ def training_loop(
             dist.print0("Aborting...")
 
         # Save network snapshot.
-        if (snapshot_ticks is not None) and (done or cur_tick % snapshot_ticks == 0):
+        if (
+            (snapshot_ticks is not None)
+            and (done or cur_tick % snapshot_ticks == 0)
+            and cur_tick != 0
+        ):
             data = dict(
-                ema=ema,
+                step=cur_nimg // batch_size,
                 loss_fn=loss_fn,
                 augment_pipe=augment_pipe,
                 dataset_kwargs=dict(dataset_kwargs),
             )
+            for ema_sigma, ema_net in emas.items():
+                data[f"ema_{ema_sigma}"] = ema_net
             for key, value in data.items():
                 if isinstance(value, torch.nn.Module):
                     value = copy.deepcopy(value).eval().requires_grad_(False)
