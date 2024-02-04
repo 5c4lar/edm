@@ -48,6 +48,7 @@ def training_loop(
     resume_kimg=0,  # Start from the given training progress.
     cudnn_benchmark=True,  # Enable torch.backends.cudnn.benchmark?
     device=torch.device("cuda"),
+    t_ref=0,  # Adam learning rate decay reference time
     log_wandb=False,  # Log to wandb
 ):
     # Initialize.
@@ -127,7 +128,7 @@ def training_loop(
             )
             sigma = torch.ones([batch_gpu], device=device)
             labels = torch.zeros([batch_gpu, net.label_dim], device=device)
-            misc.print_module_summary(net, [images, sigma, labels], max_nesting=3)
+            misc.print_module_summary(net, [images, sigma, labels], max_nesting=2)
 
     # Resume training from previous snapshot.
     if resume_pkl is not None:
@@ -200,8 +201,12 @@ def training_loop(
 
         # Update weights.
         for g in optimizer.param_groups:
+            step = cur_nimg // batch_size
             g["lr"] = optimizer_kwargs["lr"] * min(
-                cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1
+                cur_nimg
+                / max(lr_rampup_kimg * 1000, 1e-8)
+                / np.sqrt(max(step / t_ref, 1)),
+                1,
             )
         for param in net.parameters():
             if param.grad is not None:
@@ -319,11 +324,15 @@ def training_loop(
             )
             stats_jsonl.flush()
             if log_wandb:
+                step = cur_nimg // batch_size
                 loss_mean = training_stats.default_collector.as_dict()["Loss/loss"][
                     "mean"
                 ]
                 lr = optimizer_kwargs["lr"] * min(
-                    cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1
+                    cur_nimg
+                    / max(lr_rampup_kimg * 1000, 1e-8)
+                    / np.sqrt(max((step / t_ref), 1)),
+                    1,
                 )
                 if loss_kwargs["uncertainty"]:
                     u_sigma = training_stats.default_collector.as_dict()[
@@ -340,12 +349,12 @@ def training_loop(
                             "cur_nimg": cur_nimg,
                             "u_sigma": u_sigma,
                         },
-                        step=cur_nimg // batch_size,
+                        step=step,
                     )
                 else:
                     wandb.log(
                         {"train_loss": loss_mean, "lr": lr, "cur_nimg": cur_nimg},
-                        step=cur_nimg // batch_size,
+                        step=step,
                     )
         dist.update_progress(cur_nimg // 1000, total_kimg)
 

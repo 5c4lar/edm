@@ -120,6 +120,13 @@ def parse_int_list(s):
     show_default=True,
 )
 @click.option(
+    "--t-ref",
+    help="Adam lr decay start time",
+    metavar="FLOAT",
+    default=0,
+    show_default=True,
+)
+@click.option(
     "--ema-sigma",
     help="EMA sigmas",
     metavar="FLOAT",
@@ -392,6 +399,7 @@ def main(**kwargs):
     c.update(
         kimg_per_tick=opts.tick, snapshot_ticks=opts.snap, state_dump_ticks=opts.dump
     )
+    c.update(t_ref=opts.t_ref)
 
     # Random seed.
     if opts.seed is not None:
