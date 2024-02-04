@@ -1,0 +1,6 @@
+datasets
+__pycache__
+fids
+logs*
+wandb
+training-runs*
