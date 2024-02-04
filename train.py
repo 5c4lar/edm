@@ -154,11 +154,11 @@ def parse_int_list(s):
 
 # Performance-related.
 @click.option(
-    "--fp16",
-    help="Enable mixed-precision training",
-    metavar="BOOL",
-    type=bool,
-    default=False,
+    "--dtype",
+    help="Data type used for training",
+    metavar="fp32|fp16|bf16",
+    type=click.Choice(["fp32", "fp16", "bf16"]),
+    default="fp32",
     show_default=True,
 )
 @click.option(
@@ -352,7 +352,9 @@ def main(**kwargs):
             xflip=1e8, yflip=1, scale=1, rotate_frac=1, aniso=1, translate_frac=1
         )
         c.network_kwargs.augment_dim = 9
-    c.network_kwargs.update(dropout=opts.dropout, use_fp16=opts.fp16)
+    if "bf16" == opts.dtype and not torch.cuda.is_bf16_supported():
+        opts.dtype = "fp16"
+    c.network_kwargs.update(dropout=opts.dropout, dtype=opts.dtype)
 
     # Training options.
     c.total_kimg = max(int(opts.duration * 1000), 1)
@@ -393,15 +395,13 @@ def main(**kwargs):
 
     # Description string.
     cond_str = "cond" if c.dataset_kwargs.use_labels else "uncond"
-    dtype_str = "fp16" if c.network_kwargs.use_fp16 else "fp32"
+    dtype_str = c.network_kwargs.dtype
     desc = f"{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}"
     if opts.desc is not None:
         desc += f"-{opts.desc}"
 
     # Pick output directory.
-    if dist.get_rank() != 0:
-        c.run_dir = None
-    elif opts.nosubdir:
+    if opts.nosubdir:
         c.run_dir = opts.outdir
     else:
         prev_run_dirs = []
@@ -429,7 +429,7 @@ def main(**kwargs):
     dist.print0(f"Preconditioning & loss:  {opts.precond}")
     dist.print0(f"Number of GPUs:          {dist.get_world_size()}")
     dist.print0(f"Batch size:              {c.batch_size}")
-    dist.print0(f"Mixed-precision:         {c.network_kwargs.use_fp16}")
+    dist.print0(f"Precision:               {c.network_kwargs.dtype}")
     dist.print0()
 
     # Dry run?
