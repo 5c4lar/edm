@@ -23,10 +23,10 @@ def p_dot_p(t_a, gamma_a, t_b, gamma_b):
 # from Karras Paper
 def solve_weights(t_i, gamma_i, t_r, gamma_r):
     def rv(x):
-        return np.float64(x).reshape(-1, 1)
+        return x.astype(np.float64).reshape(-1, 1)
 
     def cv(x):
-        return np.float64(x).reshape(1, -1)
+        return x.astype(np.float64).reshape(1, -1)
 
     A = p_dot_p(rv(t_i), rv(gamma_i), cv(t_i), cv(gamma_i))
     B = p_dot_p(rv(t_i), rv(gamma_i), cv(t_r), cv(gamma_r))
@@ -79,9 +79,6 @@ def main(ema_sigmas, snapshot_dir, target_sigmas, target_steps):
                 "wb",
             ) as f:
                 pickle.dump(target_model, f)
-    # load all pickles
-
-    print(weights)
 
 
 if __name__ == "__main__":
