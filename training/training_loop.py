@@ -95,15 +95,6 @@ def training_loop(
         **network_kwargs, **interface_kwargs
     )  # subclass of torch.nn.Module
     net.train().requires_grad_(True).to(device)
-    if dist.get_rank() == 0:
-        with torch.no_grad():
-            images = torch.zeros(
-                [batch_gpu, net.img_channels, net.img_resolution, net.img_resolution],
-                device=device,
-            )
-            sigma = torch.ones([batch_gpu], device=device)
-            labels = torch.zeros([batch_gpu, net.label_dim], device=device)
-            misc.print_module_summary(net, [images, sigma, labels], max_nesting=2)
 
     # Setup optimizer.
     dist.print0("Setting up optimizer...")
@@ -123,6 +114,16 @@ def training_loop(
     )
     ema = copy.deepcopy(net).eval().requires_grad_(False)
 
+    if dist.get_rank() == 0:
+        with torch.no_grad():
+            images = torch.zeros(
+                [batch_gpu, net.img_channels, net.img_resolution, net.img_resolution],
+                device=device,
+            )
+            sigma = torch.ones([batch_gpu], device=device)
+            labels = torch.zeros([batch_gpu, net.label_dim], device=device)
+            misc.print_module_summary(net, [images, sigma, labels], max_nesting=2)
+            
     # Resume training from previous snapshot.
     if resume_pkl is not None:
         dist.print0(f'Loading network weights from "{resume_pkl}"...')
