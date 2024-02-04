@@ -11,10 +11,11 @@
 import torch
 from torch_utils import persistence
 
-#----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Loss function corresponding to the variance preserving (VP) formulation
 # from the paper "Score-Based Generative Modeling through Stochastic
 # Differential Equations".
+
 
 @persistence.persistent_class
 class VPLoss:
@@ -26,8 +27,10 @@ class VPLoss:
     def __call__(self, net, images, labels, augment_pipe=None):
         rnd_uniform = torch.rand([images.shape[0], 1, 1, 1], device=images.device)
         sigma = self.sigma(1 + rnd_uniform * (self.epsilon_t - 1))
-        weight = 1 / sigma ** 2
-        y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
+        weight = 1 / sigma**2
+        y, augment_labels = (
+            augment_pipe(images) if augment_pipe is not None else (images, None)
+        )
         n = torch.randn_like(y) * sigma
         D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
@@ -35,12 +38,14 @@ class VPLoss:
 
     def sigma(self, t):
         t = torch.as_tensor(t)
-        return ((0.5 * self.beta_d * (t ** 2) + self.beta_min * t).exp() - 1).sqrt()
+        return ((0.5 * self.beta_d * (t**2) + self.beta_min * t).exp() - 1).sqrt()
 
-#----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 # Loss function corresponding to the variance exploding (VE) formulation
 # from the paper "Score-Based Generative Modeling through Stochastic
 # Differential Equations".
+
 
 @persistence.persistent_class
 class VELoss:
@@ -51,16 +56,20 @@ class VELoss:
     def __call__(self, net, images, labels, augment_pipe=None):
         rnd_uniform = torch.rand([images.shape[0], 1, 1, 1], device=images.device)
         sigma = self.sigma_min * ((self.sigma_max / self.sigma_min) ** rnd_uniform)
-        weight = 1 / sigma ** 2
-        y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
+        weight = 1 / sigma**2
+        y, augment_labels = (
+            augment_pipe(images) if augment_pipe is not None else (images, None)
+        )
         n = torch.randn_like(y) * sigma
         D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
         return loss
 
-#----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 # Improved loss function proposed in the paper "Elucidating the Design Space
 # of Diffusion-Based Generative Models" (EDM).
+
 
 @persistence.persistent_class
 class EDMLoss:
@@ -72,11 +81,14 @@ class EDMLoss:
     def __call__(self, net, images, labels=None, augment_pipe=None):
         rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
-        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
-        y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
+        weight = (sigma**2 + self.sigma_data**2) / (sigma * self.sigma_data) ** 2
+        y, augment_labels = (
+            augment_pipe(images) if augment_pipe is not None else (images, None)
+        )
         n = torch.randn_like(y) * sigma
         D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
         return loss
 
-#----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
