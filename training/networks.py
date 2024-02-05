@@ -398,6 +398,7 @@ def normalize(x, eps=1e-4):
 class KarrasConv2d(torch.nn.Conv2d):
     def __init__(self, C_in, C_out, k):
         super().__init__(C_in, C_out, k, bias=False)
+        torch.nn.init.normal_(self.weight, mean=0, std=1)
 
     def forward(self, x):
         if self.training:
@@ -413,6 +414,7 @@ class KarrasConv2d(torch.nn.Conv2d):
 class KarrasLinear(torch.nn.Linear):
     def __init__(self, C_in, C_out):
         super().__init__(C_in, C_out, bias=False)
+        torch.nn.init.normal_(self.weight, mean=0, std=1)
 
     def forward(self, x):
         if self.training:
@@ -421,22 +423,6 @@ class KarrasLinear(torch.nn.Linear):
         fan_in = self.weight[0].numel()
         w = normalize(self.weight) / np.sqrt(fan_in)
         x = torch.nn.functional.linear(x, w.to(x.dtype))
-        return x
-
-
-@persistence.persistent_class
-class KarrasGroupNorm(torch.nn.Module):
-    def __init__(self, num_channels, num_groups=32, min_channels_per_group=4, eps=1e-5):
-        super().__init__()
-        self.num_groups = min(num_groups, num_channels // min_channels_per_group)
-        self.eps = eps
-
-    def forward(self, x):
-        x = torch.nn.functional.group_norm(
-            x,
-            num_groups=self.num_groups,
-            eps=self.eps,
-        )
         return x
 
 
@@ -587,7 +573,7 @@ class KarrasEncoderBlock(torch.nn.Module):
 
         # embedding layer
         self.embed = KarrasLinear(embedding_dim, out_channels)
-        self.gain = torch.nn.Parameter(torch.ones(1))
+        self.gain = torch.nn.Parameter(torch.zeros(1))
 
     def forward(self, input: torch.Tensor, embedding: torch.Tensor) -> torch.Tensor:
         x = self.resample(input)
@@ -653,7 +639,7 @@ class KarrasDecoderBlock(torch.nn.Module):
 
         # embedding layer
         self.embed = KarrasLinear(embedding_dim, out_channels)
-        self.gain = torch.nn.Parameter(torch.ones(1))
+        self.gain = torch.nn.Parameter(torch.zeros(1))
 
     def forward(
         self,
