@@ -154,10 +154,13 @@ def generate_samples(
         images = sampler_fn(
             net, latents, class_labels, randn_like=rnd.randn_like, **sampler_kwargs
         )
+        images = (
+            images / net.sigma_data * net.data_std[None, :, None, None]
+        ) + net.data_mean[None, :, None, None]
 
         # Save images.
         images_np = (
-            (images * 127.5 + 128)
+            ((images + 1) * 127.5)
             .clip(0, 255)
             .to(torch.uint8)
             .permute(0, 2, 3, 1)

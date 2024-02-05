@@ -1536,6 +1536,8 @@ class EDMPrecond(torch.nn.Module):
         sigma_min=0,  # Minimum supported noise level.
         sigma_max=float("inf"),  # Maximum supported noise level.
         sigma_data=0.5,  # Expected standard deviation of the training data.
+        data_mean=[0.0, 0.0, 0.0],  # Mean of the training data.
+        data_std=[1.0, 1.0, 1.0],  # Standard deviation of the training data.
         model_type="DhariwalUNet",  # Class name of the underlying model.
         uncertainty=False,  # Use uncertainty-based loss weighting?
         **model_kwargs,  # Keyword arguments for the underlying model.
@@ -1548,6 +1550,10 @@ class EDMPrecond(torch.nn.Module):
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
         self.sigma_data = sigma_data
+        self.register_buffer(
+            "data_mean", torch.as_tensor(data_mean, dtype=torch.float32)
+        )
+        self.register_buffer("data_std", torch.as_tensor(data_std, dtype=torch.float32))
         self.model = globals()[model_type](
             img_resolution=img_resolution,
             in_channels=img_channels,

@@ -119,6 +119,12 @@ class Dataset(torch.utils.data.Dataset):
         d.raw_label = self._get_raw_labels()[d.raw_idx].copy()
         return d
 
+    def get_mean_std(self):
+        # return channel-wise mean and std
+        images = np.stack([self._load_raw_image(i) for i in range(self._raw_shape[0])])
+        images = images / 127.5 - 1
+        return np.mean(images, axis=(0, 2, 3)), np.std(images, axis=(0, 2, 3))
+
     @property
     def name(self):
         return self._name

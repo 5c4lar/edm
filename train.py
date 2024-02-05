@@ -43,6 +43,17 @@ def parse_int_list(s):
 
 
 # ----------------------------------------------------------------------------
+# Parse a comma separated list of numbers or ranges and return a list of floats.
+# Example: '1.0,2.0,3.0' returns [1.0, 2.0, 3.0]
+
+
+def parse_float_list(s):
+    if isinstance(s, list):
+        return s
+    return [float(x) for x in s.split(",")]
+
+
+# ----------------------------------------------------------------------------
 
 
 @click.command()
@@ -200,6 +211,33 @@ def parse_int_list(s):
     default=[1, 2, 3, 4],
     show_default=True,
 )
+@click.option(
+    "--data-mean",
+    "data_mean",
+    help="Data mean",
+    metavar="LIST",
+    type=parse_float_list,
+    default=[0.0, 0.0, 0.0],
+    show_default=True,
+)
+@click.option(
+    "--data-std",
+    "data_std",
+    help="Data std",
+    metavar="LIST",
+    type=parse_float_list,
+    default=[1.0, 1.0, 1.0],
+    show_default=True,
+)
+@click.option(
+    "--use-dataset-stat",
+    "use_dataset_stat",
+    help="Use dataset statistics",
+    metavar="BOOL",
+    type=bool,
+    default=False,
+    show_default=True,
+)
 
 # Performance-related.
 @click.option(
@@ -350,6 +388,9 @@ def main(**kwargs):
     # Validate dataset options.
     try:
         dataset_obj = dnnlib.util.construct_class_by_name(**c.dataset_kwargs)
+        if opts.use_dataset_stat:
+            mean, std = dataset_obj.get_mean_std()
+            opts.update(data_mean=list(mean), data_std=list(std))
         dataset_name = dataset_obj.name
         c.dataset_kwargs.resolution = (
             dataset_obj.resolution
@@ -407,6 +448,8 @@ def main(**kwargs):
             channel_mult=opts.channel_mult,
             attn_resolutions=opts.attn_resolutions,
             num_blocks=opts.num_blocks,
+            data_mean=opts.data_mean,
+            data_std=opts.data_std,
         )
 
     # Preconditioning & loss function.

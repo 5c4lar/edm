@@ -167,6 +167,8 @@ def training_loop(
     # Train.
     dist.print0(f"Training for {total_kimg} kimg...")
     dist.print0(f"Training Parameters: {total_params} parameters")
+    dist.print0(f"Dataset Mean: {network_kwargs['data_mean']}")
+    dist.print0(f"Dataset Std: {network_kwargs['data_std']}")
     dist.print0()
     cur_nimg = resume_kimg * 1000
     cur_tick = 0
@@ -183,6 +185,11 @@ def training_loop(
             with misc.ddp_sync(ddp, (round_idx == num_accumulation_rounds - 1)):
                 images, labels = next(dataset_iterator)
                 images = images.to(device).to(torch.float32) / 127.5 - 1
+                images = (
+                    (images - net.data_mean[None, :, None, None])
+                    / net.data_std[None, :, None, None]
+                    * net.sigma_data
+                )
                 labels = labels.to(device)
                 if loss_kwargs["uncertainty"]:
                     scaled_loss, u_sigma = loss_fn(
@@ -307,7 +314,11 @@ def training_loop(
             del data  # conserve memory
         # Calculate FIDs
         dataset_size = 50000
-        if (snapshot_ticks is not None) and (done or cur_tick % snapshot_ticks == 0) and cur_tick != 0:
+        if (
+            (snapshot_ticks is not None)
+            and (done or cur_tick % snapshot_ticks == 0)
+            and cur_tick != 0
+        ):
             for ema_sigma in ema_sigmas:
                 output_dir_ema = os.path.join(run_dir, f"fid_ema_{ema_sigma}")
                 with torch.no_grad():
@@ -319,11 +330,21 @@ def training_loop(
                         None,
                         batch_gpu,
                     )
-                fid_ema = eval.calc(output_dir_ema, ref_path, dataset_size, 0, batch_gpu)
+                fid_ema = eval.calc(
+                    output_dir_ema, ref_path, dataset_size, 0, batch_gpu
+                )
                 if dist.get_rank() == 0 and log_wandb:
-                    wandb.log({f"fid_ema_{ema_sigma}": fid_ema}, step=cur_nimg // batch_size)
-                    images = [wandb.Image(os.path.join(output_dir_ema, f"{i:06d}.png")) for i in range(log_image_num)]
-                    wandb.log({f"fid_ema_{ema_sigma}_images": images}, step=cur_nimg // batch_size)
+                    wandb.log(
+                        {f"fid_ema_{ema_sigma}": fid_ema}, step=cur_nimg // batch_size
+                    )
+                    images = [
+                        wandb.Image(os.path.join(output_dir_ema, f"{i:06d}.png"))
+                        for i in range(log_image_num)
+                    ]
+                    wandb.log(
+                        {f"fid_ema_{ema_sigma}_images": images},
+                        step=cur_nimg // batch_size,
+                    )
         # Save full dump of the training state.
         if (
             (state_dump_ticks is not None)
