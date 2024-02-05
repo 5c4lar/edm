@@ -286,10 +286,18 @@ def parse_int_list(s):
 )
 @click.option("-n", "--dry-run", help="Print training options and exit", is_flag=True)
 @click.option(
-    "--log_wandb",
+    "--log-wandb",
     help="Log to Weights & Biases",
     type=bool,
     default=False,
+    show_default=True,
+)
+@click.option(
+    "--log-image-num",
+    help="Number of images to log",
+    metavar="INT",
+    type=int,
+    default=16,
     show_default=True,
 )
 @click.option(
@@ -333,6 +341,7 @@ def main(**kwargs):
     c.loss_kwargs = dnnlib.EasyDict()
     c.loss_kwargs.update(uncertainty=opts.uncertainty)
     c.log_wandb = opts.log_wandb
+    c.log_image_num = opts.log_image_num
     c.ref_path = opts.ref_path
     c.optimizer_kwargs = dnnlib.EasyDict(
         class_name="torch.optim.Adam", lr=opts.lr, betas=[0.9, 0.999], eps=1e-8
