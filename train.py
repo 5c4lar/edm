@@ -174,6 +174,23 @@ def parse_int_list(s):
     default=False,
     show_default=True,
 )
+@click.option(
+    "--num-channels",
+    "num_channels",
+    help="Number of channels in the model",
+    metavar="INT",
+    type=int,
+    default=128,
+    show_default=True,
+)
+@click.option(
+    "--channel-mult",
+    "channel_mult",
+    metavar="LIST",
+    type=parse_int_list,
+    default=[1, 2, 3, 4],
+    show_default=True,
+)
 
 # Performance-related.
 @click.option(
@@ -330,8 +347,8 @@ def main(**kwargs):
         c.network_kwargs.update(
             channel_mult_noise=1,
             resample_filter=[1, 1],
-            model_channels=128,
-            channel_mult=[2, 2, 2],
+            model_channels=opts.num_channels,
+            channel_mult=opts.channel_mult,
         )
     elif opts.arch == "ncsnpp":
         c.network_kwargs.update(
@@ -343,21 +360,21 @@ def main(**kwargs):
         c.network_kwargs.update(
             channel_mult_noise=2,
             resample_filter=[1, 3, 3, 1],
-            model_channels=128,
-            channel_mult=[2, 2, 2],
+            model_channels=opts.num_channels,
+            channel_mult=opts.channel_mult,
         )
     elif opts.arch == "adm":
         c.network_kwargs.update(
             model_type="DhariwalUNet",
-            model_channels=192,
-            channel_mult=[1, 2, 3, 4],
+            model_channels=opts.num_channels,
+            channel_mult=opts.channel_mult,
             attn_resolutions=opts.attn_resolutions,
         )
     elif opts.arch == "karras":
         c.network_kwargs.update(
             model_type="KarrasUNet",
-            model_channels=192,
-            channel_mult=[1, 2, 3, 4],
+            model_channels=opts.num_channels,
+            channel_mult=opts.channel_mult,
             attn_resolutions=opts.attn_resolutions,
         )
 
