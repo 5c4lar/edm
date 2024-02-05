@@ -283,6 +283,14 @@ def parse_int_list(s):
     default=False,
     show_default=True,
 )
+@click.option(
+    "--ref-path",
+    "ref_path",
+    help="Dataset reference statistics ",
+    metavar="NPZ|URL",
+    type=str,
+    required=True,
+)
 def main(**kwargs):
     """Train diffusion-based generative model using the techniques described in the
     paper "Elucidating the Design Space of Diffusion-Based Generative Models".
@@ -316,6 +324,7 @@ def main(**kwargs):
     c.loss_kwargs = dnnlib.EasyDict()
     c.loss_kwargs.update(uncertainty=opts.uncertainty)
     c.log_wandb = opts.log_wandb
+    c.ref_path = opts.ref_path
     c.optimizer_kwargs = dnnlib.EasyDict(
         class_name="torch.optim.Adam", lr=opts.lr, betas=[0.9, 0.999], eps=1e-8
     )

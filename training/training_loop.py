@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import wandb
 import dnnlib
+from torch_utils import eval
 from torch_utils import ema
 from torch_utils import distributed as dist
 from torch_utils import training_stats
@@ -50,6 +51,7 @@ def training_loop(
     device=torch.device("cuda"),
     t_ref=0,  # Adam learning rate decay reference time
     log_wandb=False,  # Log to wandb
+    ref_path=None,  # Path to reference npz for FID stats
 ):
     # Initialize.
     start_time = time.time()
@@ -302,7 +304,22 @@ def training_loop(
                 ) as f:
                     pickle.dump(data, f)
             del data  # conserve memory
-
+        # Calculate FIDs
+        dataset_size = 50000
+        if (snapshot_ticks is not None) and (done or cur_tick % snapshot_ticks == 0) and cur_tick != 0:
+            output_dir_ema = os.path.join(run_dir, f"fid-ema")
+            with torch.no_grad():
+                eval.generate_samples(
+                    emas[ema_sigmas[1]],
+                    output_dir_ema,
+                    False,
+                    list(range(dataset_size)),
+                    None,
+                    batch_gpu,
+                )
+            fid_ema = eval.calc(output_dir_ema, ref_path, dataset_size, 0, batch_gpu)
+            if dist.get_rank() == 0 and log_wandb:
+                wandb.log({f"fid_ema_{ema_sigmas[1]}": fid_ema}, step=cur_nimg // batch_size)
         # Save full dump of the training state.
         if (
             (state_dump_ticks is not None)
