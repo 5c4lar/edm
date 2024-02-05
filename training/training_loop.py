@@ -279,7 +279,7 @@ def training_loop(
         if (
             (snapshot_ticks is not None)
             and (done or cur_tick % snapshot_ticks == 0)
-            # and cur_tick != 0
+            and cur_tick != 0
         ):
             data = dict(
                 step=cur_nimg // batch_size,
