@@ -455,7 +455,7 @@ def parse_int_list(s):
     help="EMA sigma used for sampling",
     type=float,
     default=0.1,
-    show_default=True
+    show_default=True,
 )
 def main(
     network_pkl,
