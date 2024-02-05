@@ -1083,7 +1083,7 @@ class UncertaintyMLP(torch.nn.Module):
         num_channels,
     ):
         super().__init__()
-        self.map_noise = FourierEmbedding(num_channels=num_channels)
+        self.map_noise = KarrasFourierEmbedding(embedding_dim=num_channels)
         self.mlp = KarrasLinear(num_channels, 1)
 
     def forward(self, noise_labels):

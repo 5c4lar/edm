@@ -184,6 +184,15 @@ def parse_int_list(s):
     show_default=True,
 )
 @click.option(
+    "--num-blocks",
+    "num_blocks",
+    help="Number of blocks in the model",
+    metavar="INT",
+    type=int,
+    default=3,
+    show_default=True,
+)
+@click.option(
     "--channel-mult",
     "channel_mult",
     metavar="LIST",
@@ -358,6 +367,7 @@ def main(**kwargs):
             resample_filter=[1, 1],
             model_channels=opts.num_channels,
             channel_mult=opts.channel_mult,
+            num_blocks=opts.num_blocks,
         )
     elif opts.arch == "ncsnpp":
         c.network_kwargs.update(
@@ -371,6 +381,7 @@ def main(**kwargs):
             resample_filter=[1, 3, 3, 1],
             model_channels=opts.num_channels,
             channel_mult=opts.channel_mult,
+            num_blocks=opts.num_blocks,
         )
     elif opts.arch == "adm":
         c.network_kwargs.update(
@@ -378,6 +389,7 @@ def main(**kwargs):
             model_channels=opts.num_channels,
             channel_mult=opts.channel_mult,
             attn_resolutions=opts.attn_resolutions,
+            num_blocks=opts.num_blocks,
         )
     elif opts.arch == "karras":
         c.network_kwargs.update(
@@ -385,6 +397,7 @@ def main(**kwargs):
             model_channels=opts.num_channels,
             channel_mult=opts.channel_mult,
             attn_resolutions=opts.attn_resolutions,
+            num_blocks=opts.num_blocks,
         )
 
     # Preconditioning & loss function.
