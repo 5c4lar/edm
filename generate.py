@@ -449,6 +449,14 @@ def parse_int_list(s):
     metavar="vp|none",
     type=click.Choice(["vp", "none"]),
 )
+@click.option(
+    "--ema-sigma",
+    "ema_sigma",
+    help="EMA sigma used for sampling",
+    type=float,
+    default=0.1,
+    show_default=True
+)
 def main(
     network_pkl,
     outdir,
@@ -456,6 +464,7 @@ def main(
     seeds,
     class_idx,
     max_batch_size,
+    ema_sigma,
     device=torch.device("cuda"),
     **sampler_kwargs,
 ):
@@ -488,7 +497,7 @@ def main(
     # Load network.
     dist.print0(f'Loading network from "{network_pkl}"...')
     with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
-        net = pickle.load(f)["ema"].to(device)
+        net = pickle.load(f)[f"ema_{ema_sigma}"].to(device)
 
     # Other ranks follow.
     if dist.get_rank() == 0:

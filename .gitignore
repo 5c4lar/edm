@@ -4,3 +4,4 @@ fids
 logs*
 wandb
 training-runs*
+fid_refs

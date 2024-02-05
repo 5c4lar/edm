@@ -64,6 +64,7 @@ def main(ema_sigmas, snapshot_dir, target_sigmas, target_steps):
     weights = solve_weights(t_i, gamma_i, t_r, gamma_r)
     models = sum([[p[f"ema_{s}"] for p in pickles] for s in ema_sigmas], [])
     for target_step in range(len(target_steps)):
+        data = {}
         for target_sigma in range(len(target_sigmas)):
             weight_column = weights[:, target_sigma * len(target_steps) + target_step]
             target_model = copy.deepcopy(models[0])
@@ -74,11 +75,12 @@ def main(ema_sigmas, snapshot_dir, target_sigmas, target_steps):
                         for weight, model in zip(weight_column, models)
                     ]
                 )
-            with open(
-                f"{snapshot_dir}/posthoc-{target_sigmas[target_sigma]}-{target_steps[target_step]}.pkl",
-                "wb",
-            ) as f:
-                pickle.dump(target_model, f)
+            data[f"ema_{target_sigmas[target_sigma]}"] = target_model
+        with open(
+            f"{snapshot_dir}/posthoc-{target_steps[target_step]}.pkl",
+            "wb",
+        ) as f:
+            pickle.dump(data, f)
 
 
 if __name__ == "__main__":
