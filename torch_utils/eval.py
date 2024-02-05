@@ -150,10 +150,6 @@ def generate_samples(
         sampler_kwargs = {
             key: value for key, value in sampler_kwargs.items() if value is not None
         }
-        have_ablation_kwargs = any(
-            x in sampler_kwargs
-            for x in ["solver", "discretization", "schedule", "scaling"]
-        )
         sampler_fn = edm_sampler
         images = sampler_fn(
             net, latents, class_labels, randn_like=rnd.randn_like, **sampler_kwargs

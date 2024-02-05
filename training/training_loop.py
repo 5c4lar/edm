@@ -312,7 +312,7 @@ def training_loop(
                 eval.generate_samples(
                     emas[ema_sigmas[1]],
                     output_dir_ema,
-                    False,
+                    True,
                     list(range(dataset_size)),
                     None,
                     batch_gpu,
