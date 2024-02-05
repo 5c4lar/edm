@@ -371,6 +371,15 @@ def mp_add(a: torch.Tensor, b: torch.Tensor, t: float = 0.3) -> torch.Tensor:
     return ((1 - t) * a + t * b) / scale
 
 
+def mp_sum(tensors: list[torch.Tensor], weights: list[float]) -> torch.Tensor:
+    normalized_weights = np.array(weights, dtype=np.float32) / np.sum(
+        weights, dtype=np.float32
+    )
+    scale = np.sqrt(np.sum(normalized_weights**2, dtype=np.float32), dtype=np.float32)
+    res = sum([w * t for w, t in zip(normalized_weights, tensors)]) / scale
+    return res
+
+
 def mp_cat(a: torch.Tensor, b: torch.Tensor, t: float = 0.5) -> torch.Tensor:
     N_a, N_b = a[0].numel(), b[0].numel()
     scale = np.sqrt((N_a + N_b) / (t**2 + (1 - t) ** 2), dtype=np.float32)
@@ -454,12 +463,23 @@ class KarrasClassEmbedding(torch.nn.Module):
 
 
 @persistence.persistent_class
+class KarrasAugmentEmbedding(torch.nn.Module):
+    def __init__(self, augment_dim: int, embedding_dim: int):
+        super().__init__()
+        self.linear = KarrasLinear(augment_dim, embedding_dim)
+
+    def forward(self, augment_labels: torch.Tensor):
+        return self.linear(augment_labels)
+
+
+@persistence.persistent_class
 class KarrasEmbedding(torch.nn.Module):
     def __init__(
         self,
         fourier_dim: int,
         embedding_dim: int,
         num_classes: int = 0,
+        augment_dim: int = 0,
         add_factor: float = 0.5,
     ):
         super().__init__()
@@ -467,22 +487,36 @@ class KarrasEmbedding(torch.nn.Module):
         self.add_factor = add_factor
         self.embedding_dim = embedding_dim
         self.num_classes = num_classes
+        self.augment_dim = augment_dim
         self.fourier_embed = KarrasFourierEmbedding(fourier_dim)
         self.sigma_embed = KarrasLinear(fourier_dim, embedding_dim)
         self.class_embed = None
         if num_classes != 0:
             self.class_embed = KarrasClassEmbedding(num_classes, embedding_dim)
+        self.augment_embed = None
+        if augment_dim != 0:
+            self.augment_embed = KarrasAugmentEmbedding(augment_dim, embedding_dim)
 
-    def forward(self, c_noise, class_labels=None):
+    def forward(self, c_noise, class_labels=None, augment_labels=None):
         embedding = self.fourier_embed(c_noise)
         embedding = self.sigma_embed(embedding)
 
+        embeddings = [embedding]
         if class_labels is not None:
             if self.class_embed is None:
                 raise ValueError("class_labels is not None, but num_classes is None. ")
             class_embedding = self.class_embed(class_labels)
-            embedding = mp_add(embedding, class_embedding, self.add_factor)
+            embeddings.append(class_embedding)
 
+        if augment_labels is not None:
+            if self.augment_embed is None:
+                raise ValueError(
+                    "augment_labels is not None, but augment_dim is None. "
+                )
+            augment_embedding = self.augment_embed(augment_labels)
+            embeddings.append(augment_embedding)
+
+        embedding = mp_sum(embeddings, [1] * len(embeddings))
         out = mp_silu(embedding)
         return out
 
@@ -696,6 +730,7 @@ class KarrasUNet(torch.nn.Module):
             fourier_dim=model_channels,
             embedding_dim=emb_channels,
             num_classes=label_dim,
+            augment_dim=augment_dim,
         )
         block_kwargs = dict(
             embedding_dim=emb_channels,
@@ -755,7 +790,7 @@ class KarrasUNet(torch.nn.Module):
 
     def forward(self, x, noise_labels, class_labels, augment_labels=None):
         dtype = x.dtype
-        emb = self.embedding(noise_labels, class_labels).to(dtype)
+        emb = self.embedding(noise_labels, class_labels, augment_labels).to(dtype)
         skips = []
         ones_tensor = torch.ones_like(x[:, 0:1, :, :])
         x = torch.cat((x, ones_tensor), dim=1)
