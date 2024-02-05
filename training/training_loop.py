@@ -122,6 +122,7 @@ def training_loop(
 
     if dist.get_rank() == 0:
         with torch.no_grad():
+            net.eval()
             images = torch.zeros(
                 [batch_gpu, net.img_channels, net.img_resolution, net.img_resolution],
                 device=device,
@@ -129,6 +130,7 @@ def training_loop(
             sigma = torch.ones([batch_gpu], device=device)
             labels = torch.zeros([batch_gpu, net.label_dim], device=device)
             misc.print_module_summary(net, [images, sigma, labels], max_nesting=2)
+            net.train()
 
     # Resume training from previous snapshot.
     if resume_pkl is not None:
@@ -202,12 +204,17 @@ def training_loop(
         # Update weights.
         for g in optimizer.param_groups:
             step = cur_nimg // batch_size
-            g["lr"] = optimizer_kwargs["lr"] * min(
-                cur_nimg
-                / max(lr_rampup_kimg * 1000, 1e-8)
-                / np.sqrt(max(step / t_ref, 1)),
-                1,
-            )
+            if t_ref != 0:
+                g["lr"] = optimizer_kwargs["lr"] * min(
+                    cur_nimg
+                    / max(lr_rampup_kimg * 1000, 1e-8)
+                    / np.sqrt(max(step / t_ref, 1)),
+                    1,
+                )
+            else:
+                g["lr"] = optimizer_kwargs["lr"] * min(
+                    cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1
+                )
         for param in net.parameters():
             if param.grad is not None:
                 torch.nan_to_num(
@@ -272,7 +279,7 @@ def training_loop(
         if (
             (snapshot_ticks is not None)
             and (done or cur_tick % snapshot_ticks == 0)
-            and cur_tick != 0
+            # and cur_tick != 0
         ):
             data = dict(
                 step=cur_nimg // batch_size,
@@ -328,12 +335,17 @@ def training_loop(
                 loss_mean = training_stats.default_collector.as_dict()["Loss/loss"][
                     "mean"
                 ]
-                lr = optimizer_kwargs["lr"] * min(
-                    cur_nimg
-                    / max(lr_rampup_kimg * 1000, 1e-8)
-                    / np.sqrt(max((step / t_ref), 1)),
-                    1,
-                )
+                if t_ref != 0:
+                    lr = optimizer_kwargs["lr"] * min(
+                        cur_nimg
+                        / max(lr_rampup_kimg * 1000, 1e-8)
+                        / np.sqrt(max((step / t_ref), 1)),
+                        1,
+                    )
+                else:
+                    lr = optimizer_kwargs["lr"] * min(
+                        cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1
+                    )
                 if loss_kwargs["uncertainty"]:
                     u_sigma = training_stats.default_collector.as_dict()[
                         "Loss/u_sigma"
