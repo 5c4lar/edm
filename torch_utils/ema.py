@@ -34,16 +34,41 @@ def solve_weights(t_i, gamma_i, t_r, gamma_r):
     return X
 
 
+# ----------------------------------------------------------------------------
+# Parse a comma separated list of numbers or ranges and return a list of floats.
+# Example: '1.0,2.0,3.0' returns [1.0, 2.0, 3.0]
+
+
+def parse_float_list(s):
+    if isinstance(s, list):
+        return s
+    return [float(x) for x in s.split(",")]
+
+
+# ----------------------------------------------------------------------------
+# Parse a comma separated list of numbers or ranges and return a list of ints.
+# Example: '1,2,5' returns [1, 2, 5]
+
+
+def parse_int_list(s):
+    if isinstance(s, list):
+        return s
+    return [int(x) for x in s.split(",")]
+
+
 @click.command()
 @click.option(
-    "--ema_sigmas", type=float, default=(0.05, 0.10), multiple=True, help="EMA sigmas"
+    "--ema_sigmas", type=parse_float_list, default="0.05,0.10", help="EMA sigmas"
 )
 @click.option("--snapshot_dir", type=str, required=True, help="Snapshot directory")
 @click.option(
-    "--target_sigmas", type=float, default=(0.075,), multiple=True, help="Target sigmas"
+    "--target_sigmas",
+    type=parse_float_list,
+    default="0.075,",
+    help="Target sigmas",
 )
 @click.option(
-    "--target_steps", type=int, default=(1000,), multiple=True, help="Target steps"
+    "--target_steps", type=parse_int_list, default="1000,", help="Target steps"
 )
 def main(ema_sigmas, snapshot_dir, target_sigmas, target_steps):
     import pickle
