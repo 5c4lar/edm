@@ -333,7 +333,7 @@ def parse_float_list(s):
     help="Number of images to log",
     metavar="INT",
     type=int,
-    default=16,
+    default=64,
     show_default=True,
 )
 @click.option(
@@ -542,6 +542,7 @@ def main(**kwargs):
         c.run_dir = os.path.join(opts.outdir, f"{cur_run_id:05d}-{desc}")
         if dist.get_rank() == 0:
             assert not os.path.exists(c.run_dir)
+        torch.distributed.barrier()
 
     # Print options.
     dist.print0()
