@@ -209,6 +209,7 @@ def training_loop(
                         net=ddp, images=images, labels=labels, augment_pipe=augment_pipe
                     )
                     training_stats.report("Loss/scaled_loss", scaled_loss)
+                    loss = scaled_loss
                 training_stats.report("Loss/loss", loss)
                 loss.sum().mul(loss_scaling / batch_gpu_total).backward()
 
