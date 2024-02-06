@@ -138,12 +138,10 @@ def parse_float_list(s):
     show_default=True,
 )
 @click.option(
-    "--ema-sigma",
+    "--ema-sigmas",
     help="EMA sigmas",
-    metavar="FLOAT",
-    multiple=True,
-    type=float,
-    default=(0.05, 0.10),
+    type=parse_float_list,
+    default="0.05, 0.10",
 )
 @click.option(
     "--dropout",
@@ -484,7 +482,7 @@ def main(**kwargs):
 
     # Training options.
     c.total_kimg = max(int(opts.duration * 1000), 1)
-    c.ema_sigmas = opts.ema_sigma
+    c.ema_sigmas = opts.ema_sigmas
     c.update(batch_size=opts.batch, batch_gpu=opts.batch_gpu)
     c.update(loss_scaling=opts.ls, cudnn_benchmark=opts.bench)
     c.update(
