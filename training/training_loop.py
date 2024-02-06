@@ -205,9 +205,10 @@ def training_loop(
                     training_stats.report("Loss/u_sigma", u_sigma)
                     training_stats.report("Loss/scaled_loss", scaled_loss)
                 else:
-                    loss = loss_fn(
+                    scaled_loss = loss_fn(
                         net=ddp, images=images, labels=labels, augment_pipe=augment_pipe
                     )
+                    training_stats.report("Loss/scaled_loss", scaled_loss)
                 training_stats.report("Loss/loss", loss)
                 loss.sum().mul(loss_scaling / batch_gpu_total).backward()
 
@@ -320,7 +321,32 @@ def training_loop(
             and (done or cur_tick % snapshot_ticks == 0)
             and cur_tick != 0
         ):
-            # output_dir_ema = os.path.join(run_dir, f"fid_ema_{ema_sigma}")
+            # for ema_sigma in ema_sigmas:
+            #     output_dir_ema = os.path.join(run_dir, f"fid_ema_{ema_sigma}")
+            #     with torch.no_grad():
+            #         eval.generate_samples(
+            #             emas[ema_sigma],
+            #             output_dir_ema,
+            #             False,
+            #             list(range(dataset_size)),
+            #             None,
+            #             batch_gpu,
+            #         )
+            #     fid_ema = eval.calc(
+            #         output_dir_ema, ref_path, dataset_size, 0, batch_gpu
+            #     )
+            #     if dist.get_rank() == 0 and log_wandb:
+            #         wandb.log(
+            #             {f"fid_ema_{ema_sigma}": fid_ema}, step=cur_nimg // batch_size
+            #         )
+            #         images = [
+            #             wandb.Image(os.path.join(output_dir_ema, f"{i:06d}.png"))
+            #             for i in range(log_image_num)
+            #         ]
+            #         wandb.log(
+            #             {f"fid_ema_{ema_sigma}_images": images},
+            #             step=cur_nimg // batch_size,
+            #         )
             output_dir = os.path.join(run_dir, f"fid")
             with torch.no_grad():
                 eval.generate_samples(
@@ -331,13 +357,9 @@ def training_loop(
                     None,
                     batch_gpu,
                 )
-            fid = eval.calc(
-                output_dir, ref_path, dataset_size, 0, batch_gpu
-            )
+            fid = eval.calc(output_dir, ref_path, dataset_size, 0, batch_gpu)
             if dist.get_rank() == 0 and log_wandb:
-                wandb.log(
-                    {f"fid": fid}, step=cur_nimg // batch_size
-                )
+                wandb.log({f"fid": fid}, step=cur_nimg // batch_size)
                 images = [
                     wandb.Image(os.path.join(output_dir, f"{i:06d}.png"))
                     for i in range(log_image_num)
@@ -389,12 +411,12 @@ def training_loop(
                     lr = optimizer_kwargs["lr"] * min(
                         cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1
                     )
+                scaled_loss = training_stats.default_collector.as_dict()[
+                    "Loss/scaled_loss"
+                ]["mean"]
                 if loss_kwargs["uncertainty"]:
                     u_sigma = training_stats.default_collector.as_dict()[
                         "Loss/u_sigma"
-                    ]["mean"]
-                    scaled_loss = training_stats.default_collector.as_dict()[
-                        "Loss/scaled_loss"
                     ]["mean"]
                     wandb.log(
                         {
@@ -408,7 +430,12 @@ def training_loop(
                     )
                 else:
                     wandb.log(
-                        {"train_loss": loss_mean, "lr": lr, "cur_nimg": cur_nimg},
+                        {
+                            "train_loss": loss_mean,
+                            "scaled_loss": scaled_loss,
+                            "lr": lr,
+                            "cur_nimg": cur_nimg,
+                        },
                         step=step,
                     )
         dist.update_progress(cur_nimg // 1000, total_kimg)
