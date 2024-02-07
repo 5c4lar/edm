@@ -217,11 +217,13 @@ def training_loop(
         for g in optimizer.param_groups:
             step = cur_nimg // batch_size
             if t_ref != 0:
-                g["lr"] = optimizer_kwargs["lr"] * min(
-                    cur_nimg
-                    / max(lr_rampup_kimg * 1000, 1e-8)
-                    / np.sqrt(max(step / t_ref, 1)),
-                    1,
+                g["lr"] = (
+                    optimizer_kwargs["lr"]
+                    * min(
+                        cur_nimg / max(lr_rampup_kimg * 1000, 1e-8),
+                        1,
+                    )
+                    / np.sqrt(max((step / t_ref), 1))
                 )
             else:
                 g["lr"] = optimizer_kwargs["lr"] * min(
@@ -402,11 +404,10 @@ def training_loop(
                     "mean"
                 ]
                 if t_ref != 0:
-                    lr = optimizer_kwargs["lr"] * min(
-                        cur_nimg
-                        / max(lr_rampup_kimg * 1000, 1e-8)
-                        / np.sqrt(max((step / t_ref), 1)),
-                        1,
+                    lr = (
+                        optimizer_kwargs["lr"]
+                        * min(cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1)
+                        / np.sqrt(max((step / t_ref), 1))
                     )
                 else:
                     lr = optimizer_kwargs["lr"] * min(
