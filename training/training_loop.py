@@ -53,6 +53,7 @@ def training_loop(
     log_wandb=False,  # Log to wandb
     log_image_num=16,  # Number of images to log to wandb
     ref_path=None,  # Path to reference npz for FID stats
+    num_samples=50000,  # Number of images to calculate FID
 ):
     # Initialize.
     start_time = time.time()
@@ -297,6 +298,7 @@ def training_loop(
             and cur_tick != 0
         ):
             data = dict(
+                net=net,
                 step=cur_nimg // batch_size,
                 loss_fn=loss_fn,
                 augment_pipe=augment_pipe,
@@ -318,49 +320,22 @@ def training_loop(
                     pickle.dump(data, f)
             del data  # conserve memory
         # Calculate FIDs
-        dataset_size = 50000
         if (
             (snapshot_ticks is not None)
             and (done or cur_tick % snapshot_ticks == 0)
             and cur_tick != 0
         ):
-            # for ema_sigma in ema_sigmas:
-            #     output_dir_ema = os.path.join(run_dir, f"fid_ema_{ema_sigma}")
-            #     with torch.no_grad():
-            #         eval.generate_samples(
-            #             emas[ema_sigma],
-            #             output_dir_ema,
-            #             False,
-            #             list(range(dataset_size)),
-            #             None,
-            #             batch_gpu,
-            #         )
-            #     fid_ema = eval.calc(
-            #         output_dir_ema, ref_path, dataset_size, 0, batch_gpu
-            #     )
-            #     if dist.get_rank() == 0 and log_wandb:
-            #         wandb.log(
-            #             {f"fid_ema_{ema_sigma}": fid_ema}, step=cur_nimg // batch_size
-            #         )
-            #         images = [
-            #             wandb.Image(os.path.join(output_dir_ema, f"{i:06d}.png"))
-            #             for i in range(log_image_num)
-            #         ]
-            #         wandb.log(
-            #             {f"fid_ema_{ema_sigma}_images": images},
-            #             step=cur_nimg // batch_size,
-            #         )
             output_dir = os.path.join(run_dir, f"fid")
             with torch.no_grad():
                 eval.generate_samples(
                     net,
                     output_dir,
                     False,
-                    list(range(dataset_size)),
+                    list(range(num_samples)),
                     None,
                     batch_gpu,
                 )
-            fid = eval.calc(output_dir, ref_path, dataset_size, 0, batch_gpu)
+            fid = eval.calc(output_dir, ref_path, num_samples, 0, batch_gpu)
             if dist.get_rank() == 0 and log_wandb:
                 wandb.log({f"fid": fid}, step=cur_nimg // batch_size)
                 images = [

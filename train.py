@@ -353,6 +353,14 @@ def parse_float_list(s):
     type=str,
     required=True,
 )
+@click.option(
+    "--num-samples",
+    "num_samples",
+    help="Number of samples to generate",
+    metavar="INT",
+    type=int,
+    default=50000,
+)
 def main(**kwargs):
     """Train diffusion-based generative model using the techniques described in the
     paper "Elucidating the Design Space of Diffusion-Based Generative Models".
@@ -388,6 +396,7 @@ def main(**kwargs):
     c.log_wandb = opts.log_wandb
     c.log_image_num = opts.log_image_num
     c.ref_path = opts.ref_path
+    c.num_samples = opts.num_samples
     c.optimizer_kwargs = dnnlib.EasyDict(
         class_name="torch.optim.Adam", lr=opts.lr, betas=opts.adam_betas, eps=1e-8
     )
