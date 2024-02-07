@@ -89,6 +89,24 @@ def parse_float_list(s):
     default="edm",
     show_default=True,
 )
+@click.option(
+    "--P-mean",
+    "P_mean",
+    help="log mean of the training sigma prior",
+    metavar="FLOAT",
+    type=float,
+    default=-1.2,
+    show_default=True,
+)
+@click.option(
+    "--P-std",
+    "P_std",
+    help="log std of the training sigma prior",
+    metavar="FLOAT",
+    type=float,
+    default=1.2,
+    show_default=True,
+)
 
 # Hyperparameters.
 @click.option(
@@ -479,6 +497,8 @@ def main(**kwargs):
         assert opts.precond == "edm"
         c.network_kwargs.class_name = "training.networks.EDMPrecond"
         c.loss_kwargs.class_name = "training.loss.EDMLoss"
+        c.loss_kwargs.P_mean = opts.P_mean
+        c.loss_kwargs.P_std = opts.P_std
 
     # Network options.
     if opts.cbase is not None:
