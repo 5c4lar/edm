@@ -141,7 +141,8 @@ def parse_float_list(s):
     "--ema-sigmas",
     help="EMA sigmas",
     type=parse_float_list,
-    default="0.05, 0.10",
+    metavar="LIST",
+    default=[0.05, 0.10],
 )
 @click.option(
     "--dropout",

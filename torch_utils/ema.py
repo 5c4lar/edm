@@ -58,13 +58,20 @@ def parse_int_list(s):
 
 @click.command()
 @click.option(
-    "--ema_sigmas", type=parse_float_list, default="0.05,0.10", help="EMA sigmas"
+    "--ema_sigmas",
+    type=parse_float_list,
+    metavar="LIST",
+    default=[0.05, 0.10],
+    help="EMA sigmas",
 )
 @click.option("--snapshot_dir", type=str, required=True, help="Snapshot directory")
 @click.option(
     "--target_sigmas",
     type=parse_float_list,
-    default="0.075,",
+    metavar="LIST",
+    default=[
+        0.075,
+    ],
     help="Target sigmas",
 )
 @click.option(
