@@ -228,6 +228,14 @@ def parse_float_list(s):
     show_default=True,
 )
 @click.option(
+    "--adam-betas",
+    help="Adam betas",
+    metavar="LIST",
+    type=parse_float_list,
+    default=[0.9, 0.99],
+    show_default=True,
+)
+@click.option(
     "--use-dataset-stat",
     "use_dataset_stat",
     help="Use dataset statistics",
@@ -380,7 +388,7 @@ def main(**kwargs):
     c.log_image_num = opts.log_image_num
     c.ref_path = opts.ref_path
     c.optimizer_kwargs = dnnlib.EasyDict(
-        class_name="torch.optim.Adam", lr=opts.lr, betas=[0.9, 0.999], eps=1e-8
+        class_name="torch.optim.Adam", lr=opts.lr, betas=opts.adam_betas, eps=1e-8
     )
 
     # Validate dataset options.
